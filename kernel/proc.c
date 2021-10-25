@@ -34,12 +34,14 @@ procinit(void)
       // Allocate a page for the process's kernel stack.
       // Map it high in memory, followed by an invalid
       // guard page.
+#if 0
       char *pa = kalloc();
       if(pa == 0)
         panic("kalloc");
       uint64 va = KSTACK((int) (p - proc));
       kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
       p->kstack = va;
+#endif
   }
   kvminithart();
 }
@@ -121,6 +123,17 @@ found:
     return 0;
   }
 
+  // Create kernel pagetable
+  p->kern_pgtbl = get_pgtbl();
+  char *pa = kalloc();
+  if (pa == 0) {
+      panic("kalloc");
+  }
+  uint64 va = KSTACK((int) (p - proc));
+  kvmmap_pgtbl(p->kern_pgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
+
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -141,6 +154,16 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  if (p->kstack) {
+      pte_t *pte = walk(p->kern_pgtbl, p->kstack, 0);
+      if (pte)
+          kfree((void*)PTE2PA(*pte));
+  }
+  p->kstack = 0;
+  if (p->kern_pgtbl) { 
+      proc_free_kern_pgtbl(p->kern_pgtbl);
+      p->kern_pgtbl = 0;
+  }
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -193,6 +216,22 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
   uvmfree(pagetable, sz);
+}
+
+void
+proc_free_kern_pgtbl(pagetable_t pagetable)
+{
+    for(int i =0; i < 512; i++) {
+        pte_t pte = pagetable[i];
+        if (pte & PTE_V) {
+            pagetable[i] = 0;
+            if ((pte & (PTE_X | PTE_W | PTE_R)) == 0) {
+                uint64 child = PTE2PA(pte);
+                proc_free_kern_pgtbl((pagetable_t) child);
+            }
+        }
+    }
+    kfree((void*) pagetable);
 }
 
 // a user program that calls exec("/init")
@@ -458,6 +497,7 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
+  kvminithart();
   
   c->proc = 0;
   for(;;){
@@ -473,11 +513,14 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        w_satp(MAKE_SATP(p->kern_pgtbl));
+        sfence_vma();
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
+        kvminithart();
 
         found = 1;
       }
@@ -696,4 +739,10 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+pagetable_t
+proc_kern_pgtbl(struct proc *p)
+{
+    return p->kern_pgtbl;
 }

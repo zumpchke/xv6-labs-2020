@@ -47,6 +47,37 @@ kvminit()
   kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 }
 
+pagetable_t
+get_pgtbl()
+{
+  pagetable_t out_tbl = (pagetable_t) kalloc();
+  memset(out_tbl, 0, PGSIZE);
+
+  // uart registers
+  kvmmap_pgtbl(out_tbl, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+
+  // virtio mmio disk interface
+  kvmmap_pgtbl(out_tbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+  // CLINT
+  kvmmap_pgtbl(out_tbl, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+
+  // PLIC
+  kvmmap_pgtbl(out_tbl, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+  // map kernel text executable and read-only.
+  kvmmap_pgtbl(out_tbl, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+
+  // map kernel data and the physical RAM we'll make use of.
+  kvmmap_pgtbl(out_tbl, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  kvmmap_pgtbl(out_tbl, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+  return out_tbl;
+}
+
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
 void
@@ -101,8 +132,10 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
     if(*pte & PTE_V) {
       pagetable = (pagetable_t)PTE2PA(*pte);
     } else {
-      if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
+      if(!alloc || (pagetable = (pde_t*)kalloc()) == 0) {
+        printf("failed alloc :(\n");
         return 0;
+      }
       memset(pagetable, 0, PGSIZE);
       *pte = PA2PTE(pagetable) | PTE_V;
     }
@@ -143,6 +176,12 @@ kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
     panic("kvmmap");
 }
 
+void kvmmap_pgtbl(pagetable_t pgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+    if(mappages(pgtbl, va, sz, pa, perm) != 0)
+        panic("kvmmap_pgtbl");
+}
+
 // translate a kernel virtual address to
 // a physical address. only needed for
 // addresses on the stack.
@@ -150,11 +189,16 @@ kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 uint64
 kvmpa(uint64 va)
 {
+  struct proc *p = myproc();
+  if (!p) {
+      panic("kvmpa myproc");
+  }
+
   uint64 off = va % PGSIZE;
   pte_t *pte;
   uint64 pa;
   
-  pte = walk(kernel_pagetable, va, 0);
+  pte = walk(proc_kern_pgtbl(p), va, 0);
   if(pte == 0)
     panic("kvmpa");
   if((*pte & PTE_V) == 0)
