@@ -258,6 +258,7 @@ userinit(void)
   // allocate one user page and copy init's instructions
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
+  //uvminit(p->kern_pgtbl, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
   // prepare for the very first "return" from kernel to user.
@@ -268,6 +269,7 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
+  copy_to_kernel_pagetable(p->pagetable, p->kern_pgtbl, 0, p->sz);
 
   release(&p->lock);
 }
@@ -280,13 +282,29 @@ growproc(int n)
   uint sz;
   struct proc *p = myproc();
 
+  if (PGROUNDUP(p->sz + n) > PLIC) {
+      printf("process too big!\n");
+      return -1;
+  }
+  //printf("growing proc by %d. cur extent %x, %x, %x\n", n, p->sz, PGROUNDUP(n), PLIC);
+
   sz = p->sz;
   if(n > 0){
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    // Now need to add to kernel pagetable
+    //uint64 oldsz = PGROUNDUP(p->sz);
+    //uint64 newsz = PGROUNDUP(p->sz + n);
+    //printf("current sz = %x %x %x\n", p->sz, oldsz, newsz);
+    copy_to_kernel_pagetable(p->pagetable, p->kern_pgtbl, sz - n, sz);
+
   } else if(n < 0){
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    sz = uvmdealloc(p->pagetable, sz, sz + n, 1);
+    //printf("dealloc uvm\n");
+
+    // Remove from kernel pagetable
+    //uvmdealloc(p->kern_pgtbl, sz, sz + n, 0);
   }
   p->sz = sz;
   return 0;
@@ -333,6 +351,8 @@ fork(void)
   pid = np->pid;
 
   np->state = RUNNABLE;
+  //printf("copying from fork %d to %d\n", p->pid, np->pid);
+  copy_to_kernel_pagetable(np->pagetable, np->kern_pgtbl, 0, np->sz);
 
   release(&np->lock);
 

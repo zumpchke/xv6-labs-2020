@@ -30,6 +30,7 @@ int
 copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
   struct proc *p = myproc();
+  //printf("in copyin_new! pid %d dst %p src %x\n", p->pid, dst, srcva);
 
   if (srcva >= p->sz || srcva+len >= p->sz || srcva+len < srcva)
     return -1;
@@ -48,6 +49,7 @@ copyinstr_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   struct proc *p = myproc();
   char *s = (char *) srcva;
   
+  //printf("src %x dst %p max %d\n", srcva, dst, max);
   stats.ncopyinstr++;   // XXX lock
   for(int i = 0; i < max && srcva + i < p->sz; i++){
     dst[i] = s[i];

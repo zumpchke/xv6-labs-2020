@@ -20,6 +20,7 @@ exec(char *path, char **argv)
   struct proghdr ph;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
+  printf("exec %s\n", path);
 
   begin_op();
 
@@ -37,6 +38,9 @@ exec(char *path, char **argv)
 
   if((pagetable = proc_pagetable(p)) == 0)
     goto bad;
+
+  // Remove old user pages
+  //uvmunmap(p->kern_pgtbl, 0, p->sz / PGSIZE, 0);
 
   // Load program into memory.
   for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
@@ -68,6 +72,7 @@ exec(char *path, char **argv)
   // Use the second as the user stack.
   sz = PGROUNDUP(sz);
   uint64 sz1;
+  //printf("here!\n");
   if((sz1 = uvmalloc(pagetable, sz, sz + 2*PGSIZE)) == 0)
     goto bad;
   sz = sz1;
@@ -118,6 +123,8 @@ exec(char *path, char **argv)
   if (p->pid == 1) {
       vmprint(p->pagetable);
   }
+  //printf("copying!! for id %d\n", p->pid);
+  copy_to_kernel_pagetable(p->pagetable, p->kern_pgtbl, 0, p->sz);
 
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
