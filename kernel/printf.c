@@ -132,3 +132,24 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+static inline uint64
+r_fp()
+{
+  uint64 x;
+  asm volatile("mv %0, s0" : "=r" (x) );
+  return x;
+}
+
+void backtrace()
+{
+    uint64 *addr = (uint64 *) r_fp();
+
+    uint64 limit = PGROUNDUP((uint64)addr);
+
+    printf("backtrace:\n");
+    while((uint64)addr < limit) {
+        printf("%p\n", *(addr - 1));
+        addr = (uint64 *) *(addr - 2);
+    }
+}
