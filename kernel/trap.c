@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include <assert.h>
 
 struct spinlock tickslock;
 uint ticks;
@@ -68,13 +69,37 @@ usertrap(void)
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
-    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-    p->killed = 1;
+
+
+    uint64 scause = r_scause();
+    uint64 va = r_stval();
+    int guard_page_err = ((va >= myproc()->ustack - PGSIZE) && (va < myproc()->ustack));
+
+    if ((scause == 13 || scause == 15) && (va < myproc()->sz) && !guard_page_err) {
+        // Need to allocate pages from the page aligned VA error address
+        // to the current sz!
+        uint64 oldsz = PGROUNDDOWN(va);
+        char *mem;
+        //assert(newsz > oldsz);
+        mem = kalloc();
+        if (!mem) {
+            p->killed = 1;
+        } else {
+            memset(mem, 0, PGSIZE);
+            if (mappages(myproc()->pagetable, oldsz, PGSIZE, (uint64)mem, PTE_W | PTE_X | PTE_R | PTE_U) != 0) {
+                panic("usertrap: mappages");
+            }
+        }
+    } else {
+        printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+        printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+        p->killed = 1;
+    }
   }
 
-  if(p->killed)
+  if(p->killed) {
     exit(-1);
+  }
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)

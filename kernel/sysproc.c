@@ -47,8 +47,19 @@ sys_sbrk(void)
   if(argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
+  if (n > 0) {
+      //printf("incr size!\n");
+        //myproc()->sz = PGROUNDUP(myproc()->sz + n);
+        myproc()->sz += n;
+        //printf("got %x\n", myproc()->sz);
+  } else {
+      if (growproc(n) < 0)
+          return -1;
+  }
+#if 0
   if(growproc(n) < 0)
     return -1;
+#endif
   return addr;
 }
 

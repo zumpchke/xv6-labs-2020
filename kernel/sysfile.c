@@ -88,7 +88,14 @@ sys_write(void)
   if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
     return -1;
 
-  return filewrite(f, p, n);
+#if 0
+  //printf("file write with %p\n", p);
+  int result = filewrite(f, p, n);
+  if (result < 0) {
+  }
+#endif
+
+  return filewrite(f, p, n);;
 }
 
 uint64

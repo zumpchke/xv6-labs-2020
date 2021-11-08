@@ -150,6 +150,7 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  p->ustack = 0;
 }
 
 // Create a user page table for a given process,
@@ -224,6 +225,7 @@ userinit(void)
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
+  p->ustack = 0;
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
@@ -274,6 +276,7 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+  np->ustack = p->ustack;
 
   np->parent = p;
 
